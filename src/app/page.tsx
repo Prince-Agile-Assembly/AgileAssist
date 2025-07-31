@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { answerQuestion } from '@/ai/flows/answerQuestion';
+import { textToSpeech } from '@/ai/flows/textToSpeech';
 import { useToast } from "@/hooks/use-toast";
 import { MicButton } from '@/components/MicButton';
 import { ChatHistory } from '@/components/ChatHistory';
@@ -13,6 +14,7 @@ interface QAPair {
   id: number;
   question: string;
   answer: string;
+  audioDataUri?: string;
 }
 
 const SpeechRecognition =
@@ -27,15 +29,33 @@ export default function Home() {
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const speak = useCallback((text: string) => {
-    if ('puter' in window && (window as any).puter.ai.tts) {
-      const selectedLangInfo = languages.find(l => l.code === selectedLanguage);
-      (window as any).puter.ai.tts(text, { lang: selectedLangInfo?.ttsCode || 'en-US' });
-    } else {
-      console.warn("Puter.js TTS not available.");
+  const speak = useCallback(async (text: string, languageCode: string) => {
+    try {
+      const { audioDataUri } = await textToSpeech({ text, languageCode });
+      
+      setHistory(prev => 
+        prev.map(item => 
+          item.answer === text ? { ...item, audioDataUri } : item
+        )
+      );
+
+      if (audioRef.current) {
+        audioRef.current.src = audioDataUri;
+        audioRef.current.play().catch(e => console.error("Audio play failed", e));
+      }
+      return audioDataUri;
+    } catch (error) {
+      console.error('Error with TTS API:', error);
+      toast({
+        variant: "destructive",
+        title: "TTS Error",
+        description: "Could not generate audio for the response.",
+      });
+      return undefined;
     }
-  }, [selectedLanguage]);
+  }, [toast]);
 
   const processTranscript = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -52,7 +72,7 @@ export default function Home() {
       };
       
       setHistory(prev => [newQaPair, ...prev].slice(0, 5));
-      speak(result.answer);
+      speak(result.answer, selectedLanguage);
 
     } catch (error) {
       console.error('Error with GenAI API:', error);
@@ -64,7 +84,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [speak, toast]);
+  }, [speak, toast, selectedLanguage]);
 
   useEffect(() => {
     if (!SpeechRecognition) {
@@ -134,6 +154,10 @@ export default function Home() {
       setIsListening(false);
     }
   };
+  
+  useEffect(() => {
+    audioRef.current = new Audio();
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">

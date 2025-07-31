@@ -8,6 +8,7 @@ interface QAPair {
   id: number;
   question: string;
   answer: string;
+  audioDataUri?: string;
 }
 
 interface ChatHistoryProps {
@@ -15,19 +16,19 @@ interface ChatHistoryProps {
 }
 
 export function ChatHistory({ history }: ChatHistoryProps) {
-  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollViewportRef.current) {
-      scrollViewportRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    if (viewportRef.current) {
+      viewportRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [history]);
   
   return (
-    <ScrollArea className="h-full w-full">
-      <div ref={scrollViewportRef} className="p-4 md:p-6 space-y-8">
+    <ScrollArea viewportRef={viewportRef} className="h-full w-full">
+      <div className="p-4 md:p-6 space-y-8">
         {history.map((qa) => (
-          <ChatMessage key={qa.id} question={qa.question} answer={qa.answer} />
+          <ChatMessage key={qa.id} {...qa} />
         ))}
       </div>
     </ScrollArea>
