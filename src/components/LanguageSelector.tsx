@@ -19,8 +19,8 @@ export type Language = {
 export const languages: Language[] = [
   { code: 'en-US', name: 'English', localName: 'English', flag: '🇺🇸', ttsCode: 'en-US' },
   { code: 'hi-IN', name: 'Hindi', localName: 'हिंदी', flag: '🇮🇳', ttsCode: 'hi-IN' },
-  { code: 'ta-IN', name: 'Tamil', localName: 'தமிழ்', flag: '🇮🇳', ttsCode: 'ta-IN' },
-  { code: 'te-IN', name: 'Telugu', localName: 'తెలుగు', flag: '🇮🇳', ttsCode: 'te-IN' },
+  { code: 'ta-IN', name: 'Tamil', localName: 'தமிழ்', flag: '🇮🇳', ttsCode: 'ta' },
+  { code: 'te-IN', name: 'Telugu', localName: 'తెలుగు', flag: '🇮🇳', ttsCode: 'te' },
 ];
 
 interface LanguageSelectorProps {

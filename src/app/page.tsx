@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { answerQuestion } from '@/ai/flows/answerQuestion';
-import { textToSpeech } from '@/ai/flows/textToSpeech';
 import { useToast } from "@/hooks/use-toast";
 import { MicButton } from '@/components/MicButton';
 import { ChatHistory } from '@/components/ChatHistory';
@@ -10,11 +9,12 @@ import { LanguageSelector, languages } from '@/components/LanguageSelector';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BrainCircuit } from 'lucide-react';
 
+declare const Puter: any;
+
 interface QAPair {
   id: number;
   question: string;
   answer: string;
-  audioDataUri?: string;
 }
 
 const SpeechRecognition =
@@ -29,31 +29,18 @@ export default function Home() {
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const speak = useCallback(async (text: string, languageCode: string) => {
-    try {
-      const { audioDataUri } = await textToSpeech({ text, languageCode });
-      
-      setHistory(prev => 
-        prev.map(item => 
-          item.answer === text ? { ...item, audioDataUri } : item
-        )
-      );
-
-      if (audioRef.current) {
-        audioRef.current.src = audioDataUri;
-        audioRef.current.play().catch(e => console.error("Audio play failed", e));
-      }
-      return audioDataUri;
-    } catch (error) {
-      console.error('Error with TTS API:', error);
-      toast({
-        variant: "destructive",
-        title: "TTS Error",
-        description: "Could not generate audio for the response.",
-      });
-      return undefined;
+  const speak = useCallback((text: string, languageCode: string) => {
+    if (typeof Puter !== 'undefined' && Puter.speak) {
+        const lang = languages.find(l => l.code === languageCode)?.ttsCode || 'en-US';
+        Puter.speak(text, lang);
+    } else {
+        console.warn("Puter.js not loaded or speak function unavailable.");
+        toast({
+            variant: "destructive",
+            title: "TTS Error",
+            description: "Could not play audio. Puter.js might be blocked.",
+        });
     }
   }, [toast]);
 
@@ -154,10 +141,6 @@ export default function Home() {
       setIsListening(false);
     }
   };
-  
-  useEffect(() => {
-    audioRef.current = new Audio();
-  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
