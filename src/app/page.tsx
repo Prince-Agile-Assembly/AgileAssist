@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { answerQuestion } from '@/ai/flows/answerQuestion';
+import { textToSpeech } from '@/ai/flows/textToSpeech';
 import { useToast } from "@/hooks/use-toast";
 import { MicButton } from '@/components/MicButton';
 import { ChatHistory } from '@/components/ChatHistory';
@@ -9,12 +10,11 @@ import { LanguageSelector, languages } from '@/components/LanguageSelector';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BrainCircuit } from 'lucide-react';
 
-declare const Puter: any;
-
 interface QAPair {
   id: number;
   question: string;
   answer: string;
+  audioDataUri?: string;
 }
 
 const SpeechRecognition =
@@ -29,54 +29,14 @@ export default function Home() {
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
-  const isPuterLoadedRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    const handlePuterLoad = () => {
-      isPuterLoadedRef.current = true;
-    };
-    window.addEventListener('puter-loaded', handlePuterLoad);
-    
-    // Check if it's already loaded
-    if (typeof Puter !== 'undefined' && Puter.speak) {
-      isPuterLoadedRef.current = true;
+  const playAudio = useCallback((audioDataUri: string) => {
+    if (audioRef.current) {
+      audioRef.current.src = audioDataUri;
+      audioRef.current.play().catch(e => console.error("Audio playback failed:", e));
     }
-
-    return () => {
-      window.removeEventListener('puter-loaded', handlePuterLoad);
-    };
   }, []);
-
-  const speak = useCallback((text: string, languageCode: string) => {
-    const executeSpeak = () => {
-      if (typeof Puter !== 'undefined' && Puter.speak) {
-        const lang = languages.find(l => l.code === languageCode)?.ttsCode || 'en-US';
-        try {
-          Puter.speak(text, lang);
-        } catch (error) {
-          console.error("Puter.speak failed:", error);
-          toast({
-            variant: "destructive",
-            title: "TTS Error",
-            description: "Could not play audio. Please try again.",
-          });
-        }
-      } else {
-         console.error("Puter.js not loaded or speak function unavailable.");
-         toast({
-            variant: "destructive",
-            title: "TTS Error",
-            description: "Could not play audio. The TTS service might be unavailable.",
-         });
-      }
-    };
-    
-    if (isPuterLoadedRef.current) {
-      executeSpeak();
-    } else {
-      window.addEventListener('puter-loaded', executeSpeak, { once: true });
-    }
-  }, [toast]);
 
   const processTranscript = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -86,14 +46,23 @@ export default function Home() {
 
     try {
       const result = await answerQuestion({ question: text });
+      
+      const ttsResponse = await textToSpeech({ 
+        text: result.answer, 
+        languageCode: languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US'
+      });
+      
       const newQaPair: QAPair = {
         id: Date.now(),
         question: text,
         answer: result.answer,
+        audioDataUri: ttsResponse.audioDataUri,
       };
       
       setHistory(prev => [newQaPair, ...prev].slice(0, 5));
-      speak(result.answer, selectedLanguage);
+      if (ttsResponse.audioDataUri) {
+        playAudio(ttsResponse.audioDataUri);
+      }
 
     } catch (error) {
       console.error('Error with GenAI API:', error);
@@ -105,7 +74,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [speak, toast, selectedLanguage]);
+  }, [selectedLanguage, toast, playAudio]);
 
   useEffect(() => {
     if (!SpeechRecognition) {
@@ -178,6 +147,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
+      <audio ref={audioRef} preload="auto" />
       <header className="flex items-center justify-between p-4 border-b shrink-0">
         <div className="flex items-center gap-2">
             <BrainCircuit className="text-primary h-8 w-8" />

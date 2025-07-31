@@ -8,6 +8,7 @@ interface QAPair {
   id: number;
   question: string;
   answer: string;
+  audioDataUri?: string;
 }
 
 interface ChatHistoryProps {
