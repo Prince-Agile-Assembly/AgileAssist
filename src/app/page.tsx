@@ -33,13 +33,22 @@ export default function Home() {
   const speak = useCallback((text: string, languageCode: string) => {
     if (typeof Puter !== 'undefined' && Puter.speak) {
         const lang = languages.find(l => l.code === languageCode)?.ttsCode || 'en-US';
-        Puter.speak(text, lang);
+        try {
+          Puter.speak(text, lang);
+        } catch (error) {
+          console.error("Puter.speak failed:", error);
+           toast({
+            variant: "destructive",
+            title: "TTS Error",
+            description: "Could not play audio. Please try again.",
+        });
+        }
     } else {
         console.warn("Puter.js not loaded or speak function unavailable.");
         toast({
             variant: "destructive",
             title: "TTS Error",
-            description: "Could not play audio. Puter.js might be blocked.",
+            description: "Could not play audio. The TTS service might be unavailable.",
         });
     }
   }, [toast]);
