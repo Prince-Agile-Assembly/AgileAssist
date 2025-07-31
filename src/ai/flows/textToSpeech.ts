@@ -1,3 +1,5 @@
+'use server';
+
 import { ai } from '@/ai/genkit';
 import { TextToSpeechInput, TextToSpeechInputSchema, TextToSpeechOutput, TextToSpeechOutputSchema } from '@/ai/schemas/textToSpeechSchema';
 import wav from 'wav';

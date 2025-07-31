@@ -1,3 +1,5 @@
+'use server';
+
 import { ai } from '@/ai/genkit';
 import { AnswerQuestionInput, AnswerQuestionInputSchema, AnswerQuestionOutput, AnswerQuestionOutputSchema } from '@/ai/schemas/answerQuestionSchema';
 

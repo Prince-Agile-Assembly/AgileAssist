@@ -46,8 +46,10 @@ export default function Home() {
 
   const playAudio = useCallback((audioDataUri: string) => {
     if (audioRef.current) {
-      audioRef.current.src = audioDataUri;
-      audioRef.current.play().catch(e => console.error("Audio playback failed:", e));
+        // Create a new Audio object to ensure playback is fresh
+        const audio = new Audio(audioDataUri);
+        audio.play().catch(e => console.error("Audio playback failed:", e));
+        audioRef.current = audio;
     }
   }, []);
 
@@ -136,6 +138,10 @@ export default function Home() {
     };
 
     recognitionRef.current = recognition;
+    
+    // Initialize the audio ref
+    audioRef.current = new Audio();
+
 
     return () => {
         recognitionRef.current?.abort();
@@ -160,7 +166,6 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
-      <audio ref={audioRef} preload="auto" />
       <header className="flex items-center justify-between p-4 border-b shrink-0">
         <div className="flex items-center gap-2">
             <BrainCircuit className="text-primary h-8 w-8" />
