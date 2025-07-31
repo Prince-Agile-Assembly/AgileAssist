@@ -24,8 +24,8 @@ export function ChatHistory({ history }: ChatHistoryProps) {
   }, [history]);
   
   return (
-    <ScrollArea className="h-full w-full" viewportRef={scrollViewportRef}>
-      <div className="p-4 md:p-6 space-y-8">
+    <ScrollArea className="h-full w-full">
+      <div ref={scrollViewportRef} className="p-4 md:p-6 space-y-8">
         {history.map((qa) => (
           <ChatMessage key={qa.id} question={qa.question} answer={qa.answer} />
         ))}
