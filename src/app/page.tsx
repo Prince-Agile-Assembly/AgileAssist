@@ -29,31 +29,52 @@ export default function Home() {
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const isPuterLoadedRef = useRef(false);
 
-  const speak = useCallback((text: string, languageCode: string, retries = 5) => {
+  useEffect(() => {
+    const handlePuterLoad = () => {
+      isPuterLoadedRef.current = true;
+    };
+    window.addEventListener('puter-loaded', handlePuterLoad);
+    
+    // Check if it's already loaded
     if (typeof Puter !== 'undefined' && Puter.speak) {
-      const lang = languages.find(l => l.code === languageCode)?.ttsCode || 'en-US';
-      try {
-        Puter.speak(text, lang);
-      } catch (error) {
-        console.error("Puter.speak failed:", error);
-        toast({
-          variant: "destructive",
-          title: "TTS Error",
-          description: "Could not play audio. Please try again.",
-        });
+      isPuterLoadedRef.current = true;
+    }
+
+    return () => {
+      window.removeEventListener('puter-loaded', handlePuterLoad);
+    };
+  }, []);
+
+  const speak = useCallback((text: string, languageCode: string) => {
+    const executeSpeak = () => {
+      if (typeof Puter !== 'undefined' && Puter.speak) {
+        const lang = languages.find(l => l.code === languageCode)?.ttsCode || 'en-US';
+        try {
+          Puter.speak(text, lang);
+        } catch (error) {
+          console.error("Puter.speak failed:", error);
+          toast({
+            variant: "destructive",
+            title: "TTS Error",
+            description: "Could not play audio. Please try again.",
+          });
+        }
+      } else {
+         console.error("Puter.js not loaded or speak function unavailable.");
+         toast({
+            variant: "destructive",
+            title: "TTS Error",
+            description: "Could not play audio. The TTS service might be unavailable.",
+         });
       }
-    } else if (retries > 0) {
-      console.warn("Puter.js not loaded, retrying...");
-      setTimeout(() => speak(text, languageCode, retries - 1), 500);
-    } 
-    else {
-      console.error("Puter.js not loaded or speak function unavailable.");
-      toast({
-        variant: "destructive",
-        title: "TTS Error",
-        description: "Could not play audio. The TTS service might be unavailable.",
-      });
+    };
+    
+    if (isPuterLoadedRef.current) {
+      executeSpeak();
+    } else {
+      window.addEventListener('puter-loaded', executeSpeak, { once: true });
     }
   }, [toast]);
 
