@@ -4,6 +4,10 @@ import { answerQuestion } from '@/ai/flows/answerQuestion';
 import { textToSpeech } from '@/ai/flows/textToSpeech';
 
 export async function POST(req: NextRequest) {
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: 'Missing GEMINI_API_KEY environment variable' }, { status: 500 });
+  }
+  
   try {
     const { action, payload } = await req.json();
 

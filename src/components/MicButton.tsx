@@ -8,9 +8,10 @@ interface MicButtonProps {
   isLoading: boolean;
   startListening: () => void;
   stopListening: () => void;
+  disabled?: boolean;
 }
 
-export function MicButton({ isListening, isLoading, startListening, stopListening }: MicButtonProps) {
+export function MicButton({ isListening, isLoading, startListening, stopListening, disabled }: MicButtonProps) {
   const handleClick = () => {
     if (isListening) {
       stopListening();
@@ -19,15 +20,17 @@ export function MicButton({ isListening, isLoading, startListening, stopListenin
     }
   };
 
+  const effectiveDisabled = disabled || isLoading;
+
   return (
     <Button
       size="icon"
       className={`rounded-full w-20 h-20 shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 pointer-events-auto
         ${isListening ? 'bg-destructive hover:bg-destructive/90 scale-110 animate-pulse' : 'bg-primary hover:bg-primary/90'}
-        ${isLoading ? 'bg-muted-foreground cursor-not-allowed' : ''}
+        ${effectiveDisabled ? 'bg-muted-foreground cursor-not-allowed' : ''}
       `}
       onClick={handleClick}
-      disabled={isLoading}
+      disabled={effectiveDisabled}
       aria-label={isListening ? 'Stop listening' : isLoading ? 'Loading response' : 'Start listening'}
     >
       {isLoading ? (

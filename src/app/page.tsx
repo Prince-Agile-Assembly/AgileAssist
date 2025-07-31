@@ -27,7 +27,7 @@ async function callGenAiApi(action: string, payload: any) {
 
   if (!response.ok) {
     const errorBody = await response.json();
-    throw new Error(errorBody.error || 'API call failed');
+    throw new Error(errorBody.details || errorBody.error || 'API call failed');
   }
 
   return response.json();
@@ -39,14 +39,37 @@ export default function Home() {
   const [history, setHistory] = useState<QAPair[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [isApiConfigured, setIsApiConfigured] = useState(true);
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  useEffect(() => {
+    const checkApiHealth = async () => {
+      try {
+        const response = await fetch('/api/health');
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error);
+        }
+        setIsApiConfigured(true);
+      } catch (error) {
+        setIsApiConfigured(false);
+        console.error("API health check failed:", error);
+        toast({
+          variant: "destructive",
+          title: "Configuration Error",
+          description: "The backend is not configured correctly. Please ensure the GEMINI_API_KEY is set in your environment.",
+          duration: 10000,
+        });
+      }
+    };
+    checkApiHealth();
+  }, [toast]);
+
   const playAudio = useCallback((audioDataUri: string) => {
     if (audioRef.current) {
-        // Create a new Audio object to ensure playback is fresh
         const audio = new Audio(audioDataUri);
         audio.play().catch(e => console.error("Audio playback failed:", e));
         audioRef.current = audio;
@@ -84,7 +107,7 @@ export default function Home() {
       toast({
         variant: "destructive",
         title: "AI Error",
-        description: "Could not get a response from the assistant.",
+        description: error instanceof Error ? error.message : "Could not get a response from the assistant.",
       });
     } finally {
       setIsLoading(false);
@@ -139,7 +162,6 @@ export default function Home() {
 
     recognitionRef.current = recognition;
     
-    // Initialize the audio ref
     audioRef.current = new Audio();
 
 
@@ -149,6 +171,14 @@ export default function Home() {
   }, [selectedLanguage, toast, processTranscript]);
 
   const startListening = () => {
+    if (!isApiConfigured) {
+      toast({
+        variant: "destructive",
+        title: "Configuration Error",
+        description: "Cannot start listening, the backend is not configured correctly. Please check your API key.",
+      });
+      return;
+    }
     if (recognitionRef.current && !isListening && !isLoading) {
       finalTranscriptRef.current = '';
       setLiveTranscript('');
@@ -185,7 +215,12 @@ export default function Home() {
             <div className="bg-card p-8 rounded-lg shadow-lg max-w-md">
               <BrainCircuit className="text-primary h-16 w-16 mx-auto mb-4" />
               <h2 className="text-2xl font-bold font-headline mb-2">Welcome to Lumina Spark</h2>
-              <p className="text-muted-foreground">Your AI academic assistant. Press the microphone button and start speaking to ask a question.</p>
+              <p className="text-muted-foreground">
+                {isApiConfigured 
+                  ? "Your AI academic assistant. Press the microphone button and start speaking to ask a question."
+                  : "Backend not configured. Please set your GEMINI_API_KEY."
+                }
+              </p>
             </div>
           </div>
         )}
@@ -195,6 +230,7 @@ export default function Home() {
               isLoading={isLoading} 
               startListening={startListening}
               stopListening={stopListening}
+              disabled={!isApiConfigured || isLoading}
             />
         </div>
       </main>
