@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { answerQuestion } from '@/ai/flows/answerQuestion';
-import { textToSpeech } from '@/ai/flows/textToSpeech';
 import { useToast } from "@/hooks/use-toast";
 import { MicButton } from '@/components/MicButton';
 import { ChatHistory } from '@/components/ChatHistory';
@@ -19,6 +17,21 @@ interface QAPair {
 
 const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
+
+async function callGenAiApi(action: string, payload: any) {
+  const response = await fetch('/api/gen-ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, payload }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json();
+    throw new Error(errorBody.error || 'API call failed');
+  }
+
+  return response.json();
+}
 
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
@@ -45,9 +58,9 @@ export default function Home() {
     finalTranscriptRef.current = '';
 
     try {
-      const result = await answerQuestion({ question: text });
+      const result = await callGenAiApi('answerQuestion', { question: text });
       
-      const ttsResponse = await textToSpeech({ 
+      const ttsResponse = await callGenAiApi('textToSpeech', { 
         text: result.answer, 
         languageCode: languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US'
       });

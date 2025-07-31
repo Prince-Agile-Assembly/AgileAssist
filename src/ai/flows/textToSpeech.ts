@@ -1,13 +1,4 @@
-'use server';
-
-/**
- * @fileOverview Converts text to speech using a Genkit flow.
- *
- * - textToSpeech - A function that handles the text-to-speech conversion.
- */
-
 import { ai } from '@/ai/genkit';
-import { z } from 'zod';
 import { TextToSpeechInput, TextToSpeechInputSchema, TextToSpeechOutput, TextToSpeechOutputSchema } from '@/ai/schemas/textToSpeechSchema';
 import wav from 'wav';
 import { googleAI } from '@genkit-ai/googleai';
