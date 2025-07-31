@@ -1,0 +1,13 @@
+# Configuration for deploying to Render
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: lumina-spark
+    env: node
+    plan: free # or your desired plan
+    buildCommand: 'npm install && npm run build'
+    startCommand: 'npm start'
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false # Keep your API key secret
