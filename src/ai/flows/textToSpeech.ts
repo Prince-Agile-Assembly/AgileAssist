@@ -51,7 +51,10 @@ const textToSpeechFlow = ai.defineFlow(
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-             languageCode: languageCode,
+             // The API does not accept languageCode here.
+             // For multilingual support, a different approach like selecting
+             // a pre-built voice for each language would be needed.
+             // For now, we rely on the model's default voice.
           },
         },
       },
