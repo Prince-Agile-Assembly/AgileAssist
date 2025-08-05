@@ -7,27 +7,24 @@ import { ChatHistory } from '@/components/ChatHistory';
 import { LanguageSelector, languages } from '@/components/LanguageSelector';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BrainCircuit } from 'lucide-react';
-
-interface QAPair {
-  id: number;
-  question: string;
-  answer: string;
-  audioDataUri?: string;
-}
+import { useChat, Message } from 'ai/react';
 
 const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
 
-async function callGenAiApi(action: string, payload: any) {
+async function callTextToSpeechApi(text: string, languageCode: string) {
   const response = await fetch('/api/gen-ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, payload }),
+    body: JSON.stringify({ 
+      action: 'textToSpeech', 
+      payload: { text, languageCode } 
+    }),
   });
 
   if (!response.ok) {
     const errorBody = await response.json();
-    throw new Error(errorBody.details || errorBody.error || 'API call failed');
+    throw new Error(errorBody.details || errorBody.error || 'TTS API call failed');
   }
 
   return response.json();
@@ -35,8 +32,6 @@ async function callGenAiApi(action: string, payload: any) {
 
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [history, setHistory] = useState<QAPair[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
   const [liveTranscript, setLiveTranscript] = useState('');
   const [isApiConfigured, setIsApiConfigured] = useState(true);
@@ -44,6 +39,42 @@ export default function Home() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const { messages, append, isLoading, setMessages } = useChat({
+    api: '/api/gen-ai',
+    onFinish: async (message) => {
+      try {
+        const ttsResponse = await callTextToSpeechApi(
+          message.content,
+          languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US'
+        );
+
+        if (ttsResponse.audioDataUri) {
+          // Update the message with the audio URI
+          setMessages(prevMessages => prevMessages.map(m => 
+            m.id === message.id 
+              ? { ...m, data: { audioDataUri: ttsResponse.audioDataUri } }
+              : m
+          ));
+          playAudio(ttsResponse.audioDataUri);
+        }
+      } catch (error) {
+        console.error('Error with TTS API:', error);
+        toast({
+          variant: "destructive",
+          title: "Audio Error",
+          description: error instanceof Error ? error.message : "Could not generate audio for the response.",
+        });
+      }
+    },
+    onError: (error) => {
+       toast({
+        variant: "destructive",
+        title: "AI Error",
+        description: error.message || "Could not get a response from the assistant.",
+      });
+    }
+  });
 
   useEffect(() => {
     const checkApiHealth = async () => {
@@ -78,41 +109,14 @@ export default function Home() {
 
   const processTranscript = useCallback(async (text: string) => {
     if (!text.trim()) return;
-    setIsLoading(true);
     setLiveTranscript('');
     finalTranscriptRef.current = '';
-
-    try {
-      const result = await callGenAiApi('answerQuestion', { question: text });
-      
-      const ttsResponse = await callGenAiApi('textToSpeech', { 
-        text: result.answer, 
-        languageCode: languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US'
-      });
-      
-      const newQaPair: QAPair = {
-        id: Date.now(),
-        question: text,
-        answer: result.answer,
-        audioDataUri: ttsResponse.audioDataUri,
-      };
-      
-      setHistory(prev => [newQaPair, ...prev].slice(0, 5));
-      if (ttsResponse.audioDataUri) {
-        playAudio(ttsResponse.audioDataUri);
-      }
-
-    } catch (error) {
-      console.error('Error with GenAI API:', error);
-      toast({
-        variant: "destructive",
-        title: "AI Error",
-        description: error instanceof Error ? error.message : "Could not get a response from the assistant.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedLanguage, toast, playAudio]);
+    
+    await append({
+      role: 'user',
+      content: text,
+    });
+  }, [append]);
 
   useEffect(() => {
     if (!SpeechRecognition) {
@@ -164,7 +168,6 @@ export default function Home() {
     
     audioRef.current = new Audio();
 
-
     return () => {
         recognitionRef.current?.abort();
     }
@@ -208,8 +211,8 @@ export default function Home() {
       </header>
 
       <main className="flex-1 relative overflow-hidden">
-        {history.length > 0 ? (
-          <ChatHistory history={history} />
+        {messages.length > 0 ? (
+          <ChatHistory messages={messages} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center p-4">
             <div className="bg-card p-8 rounded-lg shadow-lg max-w-md">

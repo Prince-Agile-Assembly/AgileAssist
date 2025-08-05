@@ -3,9 +3,10 @@
 import { ai } from '@/ai/genkit';
 import { AnswerQuestionInput, AnswerQuestionInputSchema, AnswerQuestionOutput, AnswerQuestionOutputSchema } from '@/ai/schemas/answerQuestionSchema';
 
-
+// This function is kept for potential non-streaming uses, but the flow is used directly for streaming.
 export async function answerQuestion(input: AnswerQuestionInput): Promise<AnswerQuestionOutput> {
-  return answerQuestionFlow(input);
+  const { output } = await ai.runFlow(answerQuestionFlow, input);
+  return output!;
 }
 
 const prompt = ai.definePrompt({
@@ -17,7 +18,7 @@ const prompt = ai.definePrompt({
   Question: {{{question}}}`,
 });
 
-const answerQuestionFlow = ai.defineFlow(
+export const answerQuestionFlow = ai.defineFlow(
   {
     name: 'answerQuestionFlow',
     inputSchema: AnswerQuestionInputSchema,
