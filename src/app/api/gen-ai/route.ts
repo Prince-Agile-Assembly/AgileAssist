@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { textToSpeech } from '@/ai/flows/textToSpeech';
 import { answerQuestionFlow } from '@/ai/flows/answerQuestion';
 import { ai } from '@/ai/genkit';
-import { StreamingTextResponse, Message } from 'ai';
+import { StreamingTextResponse } from 'ai';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   if (!process.env.GEMINI_API_KEY) {
@@ -13,21 +15,26 @@ export async function POST(req: NextRequest) {
   try {
     const { messages, action, payload } = await req.json();
 
-    if (action === 'textToSpeech') {
+    if (action === 'textToSpeech' && payload) {
       const result = await textToSpeech(payload);
       return NextResponse.json(result);
     }
     
-    // Default action is streaming chat
-    const lastUserMessage = messages[messages.length - 1];
+    // Default action is streaming chat if messages are present
+    if (messages && messages.length > 0) {
+        const lastUserMessage = messages[messages.length - 1];
+        
+        const {stream} = await ai.runFlow(answerQuestionFlow, {
+          stream: true,
+          input: { question: lastUserMessage.content },
+        });
+        
+        const textStream = stream.text();
+        return new StreamingTextResponse(textStream);
+    }
     
-    const stream = await ai.runFlow(answerQuestionFlow, {
-      stream: true,
-      input: { question: lastUserMessage.content },
-    });
-    
-    const textStream = stream.text();
-    return new StreamingTextResponse(textStream);
+    // Fallback for invalid request body
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
 
   } catch (error) {
     console.error('API Route Error:', error);

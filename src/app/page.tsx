@@ -12,7 +12,8 @@ import { Message } from 'ai';
 const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
 
-const wakePhrases = ['hey agile'];
+// The wake phrase is more reliable with multiple words.
+const WAKE_PHRASE = 'hey agile';
 
 async function callTextToSpeechApi(text: string, languageCode: string) {
   const response = await fetch('/api/gen-ai', {
@@ -35,7 +36,7 @@ async function callTextToSpeechApi(text: string, languageCode: string) {
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
-  const [liveTranscript, setLiveTranscript] = useState('');
+  const [currentTranscript, setCurrentTranscript] = useState('');
   const [history, setHistory] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isApiConfigured, setIsApiConfigured] = useState(true);
@@ -43,10 +44,10 @@ export default function Home() {
   const { toast } = useToast();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
-  // This ref will hold the latest transcript without causing re-renders on every change.
-  const transcriptRef = useRef('');
-  
+  const finalTranscriptRef = useRef('');
+  const wakeWordTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Health check effect
   useEffect(() => {
     const checkApiHealth = async () => {
       try {
@@ -72,9 +73,8 @@ export default function Home() {
   
   const playAudio = useCallback((audioDataUri: string) => {
     if (audioRef.current) {
-        const audio = new Audio(audioDataUri);
-        audio.play().catch(e => console.error("Audio playback failed:", e));
-        audioRef.current = audio;
+        audioRef.current.src = audioDataUri;
+        audioRef.current.play().catch(e => console.error("Audio playback failed:", e));
     }
   }, []);
 
@@ -82,49 +82,63 @@ export default function Home() {
     if (!text.trim() || isLoading) return;
     
     setIsLoading(true);
-    setLiveTranscript('');
-    transcriptRef.current = '';
+    setCurrentTranscript('');
+    finalTranscriptRef.current = '';
 
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: text };
-    setHistory(prev => [...prev, userMessage]);
+    setHistory(prev => [...prev.slice(-10), userMessage]); // Keep history trimmed
 
     try {
-      const response = await fetch('/api/gen-ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'answerQuestion', payload: { question: text } }),
-      });
-      if (!response.ok) {
-        const errorBody = await response.json();
-        throw new Error(errorBody.details || 'Failed to get a response from the assistant.');
-      }
-      const { answer } = await response.json();
-      
-      const assistantMessage: Message = { id: Date.now().toString() + 'a', role: 'assistant', content: answer };
-      setHistory(prev => [...prev, assistantMessage]);
-
-      // Call TTS API
-      try {
-        const ttsResponse = await callTextToSpeechApi(answer, languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US');
-        
-        if (ttsResponse.audioDataUri) {
-          // Find the assistant message and add audio data to it
-          setHistory(prev => prev.map(msg => 
-            msg.id === assistantMessage.id 
-              ? { ...msg, data: { audioDataUri: ttsResponse.audioDataUri } } 
-              : msg
-          ));
-          playAudio(ttsResponse.audioDataUri);
-        }
-      } catch (ttsError) {
-         console.error('Error with TTS API:', ttsError);
-         toast({
-          variant: "destructive",
-          title: "Audio Error",
-          description: ttsError instanceof Error ? ttsError.message : "Could not generate audio for the response.",
+        const response = await fetch('/api/gen-ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: [...history, userMessage] }),
         });
-      }
 
+        if (!response.body) {
+            throw new Error('The response does not contain a readable stream.');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = '';
+        const assistantMessageId = Date.now().toString() + 'a';
+        setHistory(prev => [...prev, { id: assistantMessageId, role: 'assistant', content: '' }]);
+
+        // Stream the response
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            fullResponse += chunk;
+            setHistory(prev => prev.map(msg => 
+                msg.id === assistantMessageId 
+                ? { ...msg, content: fullResponse } 
+                : msg
+            ));
+        }
+
+        // Call TTS API once the full response is received
+        if (fullResponse) {
+            try {
+                const ttsResponse = await callTextToSpeechApi(fullResponse, languages.find(l => l.code === selectedLanguage)?.ttsCode || 'en-US');
+                if (ttsResponse.audioDataUri) {
+                    setHistory(prev => prev.map(msg => 
+                        msg.id === assistantMessageId 
+                        ? { ...msg, data: { audioDataUri: ttsResponse.audioDataUri } } 
+                        : msg
+                    ));
+                    playAudio(ttsResponse.audioDataUri);
+                }
+            } catch (ttsError) {
+                console.error('Error with TTS API:', ttsError);
+                toast({
+                    variant: "destructive",
+                    title: "Audio Error",
+                    description: ttsError instanceof Error ? ttsError.message : "Could not generate audio.",
+                });
+            }
+        }
     } catch (error) {
       console.error('Error processing transcript:', error);
       toast({
@@ -132,11 +146,20 @@ export default function Home() {
         title: "AI Error",
         description: error instanceof Error ? error.message : "Could not get a response from the assistant.",
       });
+       setHistory(prev => prev.filter(msg => msg.role !== 'assistant' || msg.content !== ''));
+
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, toast, playAudio, selectedLanguage]);
+  }, [isLoading, toast, playAudio, selectedLanguage, history]);
 
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+  }, []);
+
+  // Effect for initializing and managing speech recognition
   useEffect(() => {
     if (!SpeechRecognition) {
       toast({
@@ -152,102 +175,111 @@ export default function Home() {
     recognition.interimResults = true;
     recognition.lang = selectedLanguage;
 
-    recognition.onresult = (event) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-      
-      const combinedTranscript = (transcriptRef.current + finalTranscript).trim().toLowerCase();
-      
-      if (isWaitingForWakeWord) {
-        const wakeWordDetected = wakePhrases.some(phrase => combinedTranscript.includes(phrase));
-        if (wakeWordDetected) {
-            console.log("Wake word detected!");
-            setIsWaitingForWakeWord(false);
-            setLiveTranscript("I'm listening...");
-            // Stop and restart recognition to clear the buffer
-            recognitionRef.current?.stop();
-            setTimeout(() => recognitionRef.current?.start(), 100);
-        } else {
-             setLiveTranscript('Say "Hey Agile" to start...');
-        }
-      } else {
-          transcriptRef.current = finalTranscript;
-          setLiveTranscript(interimTranscript);
-      }
+    recognitionRef.current = recognition;
+    audioRef.current = new Audio();
+
+    recognition.onstart = () => {
+      setIsListening(true);
     };
 
     recognition.onend = () => {
-      if (isListening) {
-        // If we are still supposed to be listening (not manually stopped), restart it.
-        // This handles cases where recognition times out.
-        if (!isWaitingForWakeWord) {
-             processTranscript(transcriptRef.current);
-        }
-        // If waiting for wake word, just restart
-        else if (recognitionRef.current) {
-           recognitionRef.current.start();
-        }
+      setIsListening(false);
+      // If we were not waiting for a wake word, it means the user finished their question.
+      if (!isWaitingForWakeWord && finalTranscriptRef.current) {
+        processTranscript(finalTranscriptRef.current);
       }
     };
     
     recognition.onerror = (event) => {
       console.error('Speech recognition error', event.error);
-       if ((event as any).error !== 'no-speech') {
+       if (event.error !== 'no-speech' && event.error !== 'aborted') {
           toast({
             variant: "destructive",
             title: "Speech Recognition Error",
-            description: (event as any).error === 'not-allowed' ? 'Microphone access was denied.' : `An error occurred: ${(event as any).error}`,
+            description: event.error === 'not-allowed' ? 'Microphone access was denied.' : `An error occurred: ${event.error}`,
           });
       }
-      setIsListening(false);
-      setIsWaitingForWakeWord(false);
     };
 
-    recognitionRef.current = recognition;
-    audioRef.current = new Audio();
+    recognition.onresult = (event) => {
+      let interimTranscript = '';
+      let finalTranscriptChunk = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscriptChunk += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      const finalLower = finalTranscriptChunk.toLowerCase().trim();
+
+      if (isWaitingForWakeWord) {
+        setCurrentTranscript(interimTranscript || 'Say "Hey Agile" to start...');
+        // Check if the final transcript chunk contains the wake phrase
+        if (finalLower.includes(WAKE_PHRASE)) {
+            console.log("Wake word detected!");
+            
+            // Clear any timeout that would have turned off listening
+            if (wakeWordTimeoutRef.current) {
+                clearTimeout(wakeWordTimeoutRef.current);
+                wakeWordTimeoutRef.current = null;
+            }
+
+            // Immediately switch to question-listening mode
+            setIsWaitingForWakeWord(false);
+            finalTranscriptRef.current = ''; // Clear transcript buffer
+            setCurrentTranscript("I'm listening...");
+        }
+      } else {
+        // We are now listening for the question
+        finalTranscriptRef.current += finalTranscriptChunk;
+        setCurrentTranscript(interimTranscript || finalTranscriptRef.current || 'Listening...');
+      }
+    };
 
     return () => {
         recognitionRef.current?.abort();
-    }
-  }, [selectedLanguage, toast, processTranscript, isWaitingForWakeWord, isListening]);
+    };
+  }, [selectedLanguage, toast, processTranscript, isWaitingForWakeWord]);
+
 
   const startListening = () => {
-    if (!isApiConfigured) {
-      toast({
-        variant: "destructive",
-        title: "Configuration Error",
-        description: "Cannot start listening, the backend is not configured correctly. Please check your API key.",
-      });
+    if (!isApiConfigured || isListening || isLoading) {
+        if (!isApiConfigured) {
+             toast({
+                variant: "destructive",
+                title: "Configuration Error",
+                description: "Cannot start listening, the backend is not configured correctly.",
+             });
+        }
       return;
     }
-    if (recognitionRef.current && !isListening && !isLoading) {
-      transcriptRef.current = '';
-      setLiveTranscript('Say "Hey Agile" to start...');
-      setIsWaitingForWakeWord(true);
-      recognitionRef.current.start();
-      setIsListening(true);
-    }
+    
+    finalTranscriptRef.current = '';
+    setCurrentTranscript('Say "Hey Agile" to start...');
+    setIsWaitingForWakeWord(true);
+    recognitionRef.current?.start();
+
+    // Add a timeout to stop listening for the wake word after 15 seconds to save resources
+    if (wakeWordTimeoutRef.current) clearTimeout(wakeWordTimeoutRef.current);
+    wakeWordTimeoutRef.current = setTimeout(() => {
+        if(isWaitingForWakeWord) {
+            console.log("Wake word timeout.");
+            stopListening();
+        }
+    }, 15000);
   };
 
-  const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      setIsWaitingForWakeWord(false);
-      setLiveTranscript('');
-      if (transcriptRef.current && !isWaitingForWakeWord) {
-          processTranscript(transcriptRef.current);
+  const handleMicButtonClick = () => {
+      if(isListening) {
+          stopListening();
+      } else {
+          startListening();
       }
-    }
-  };
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
@@ -283,17 +315,16 @@ export default function Home() {
             <MicButton 
               isListening={isListening} 
               isLoading={isLoading} 
-              startListening={startListening}
-              stopListening={stopListening}
-              disabled={!isApiConfigured || isLoading}
+              onMicClick={handleMicButtonClick}
+              disabled={!isApiConfigured}
             />
         </div>
       </main>
 
-       {(isListening || liveTranscript) && (
+       {(isListening || currentTranscript) && (
         <div className="fixed bottom-28 w-full text-center px-4 pointer-events-none">
           <p className="text-muted-foreground bg-card/90 backdrop-blur-sm p-3 rounded-lg inline-block shadow-lg animate-pulse">
-            {liveTranscript || 'Listening...'}
+            {currentTranscript || 'Listening...'}
           </p>
         </div>
       )}
@@ -304,7 +335,7 @@ export default function Home() {
         <p>isListening: {isListening.toString()}</p>
         <p>isWaiting: {isWaitingForWakeWord.toString()}</p>
         <p>isLoading: {isLoading.toString()}</p>
-        <p>Transcript: "{liveTranscript}"</p>
+        <p>Transcript: "{currentTranscript}"</p>
       </div>
     </div>
   );
